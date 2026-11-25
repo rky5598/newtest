@@ -27,7 +27,6 @@ textarea{min-height:110px;padding:10px;border:1px solid var(--line);border-radiu
 .btn.sec{background:#fff;color:var(--ink);border:1px solid var(--line)}
 .note{font-size:.85rem;color:#8a8078;margin-top:6px}
 .warn{color:var(--red)}
-.redscreen{background:#fff5f5;border:1px solid #d98a8a}
 .meta{color:#8a8078;font-size:.8rem;margin:4px 0}
 </style>
 </head>
@@ -35,13 +34,12 @@ textarea{min-height:110px;padding:10px;border:1px solid var(--line);border-radiu
 <div id="app"></div>
 <script type="application/json" id="test-data">
 {
-  "version": "1.0",
+  "version": "2.1",
   "meta": {
     "title": "Полная карта состояний",
     "scale": "1–10",
     "slider_question": "Насколько это про вас в последний месяц?",
-    "min_open_len": 30,
-    "red_filter": "на каждом открытом ответе блока Б"
+    "min_open_len": 30
   },
   "ai_contract": {
     "temperature": [0.4, 0.6],
@@ -231,17 +229,31 @@ textarea{min-height:110px;padding:10px;border:1px solid var(--line);border-radiu
 "use strict";
 var D=JSON.parse(document.getElementById('test-data').textContent);
 var BRIDGE_URL=""; /* URL веб-приложения Apps Script — заполнить после деплоя моста */
-var HOTLINE="8-800-2000-122";
-var KEY='full_map_test_v1';
+var KEY='full_map_test_v2';   /* актуальный ключ */
+var KEY_V1='full_map_test_v1'; /* старый ключ — источник переноса */
 var CH=Object.keys(D.channels);
-var RED=/бессмысленн|не хочу жить|суицид|самоубийств|покончить|вскры(?:ть|ла)|порез|ненавижу себя|не вижу смысла|хочу умереть|ушл[аяо] из жизни/i;
 
-function load(){try{var r=localStorage.getItem(KEY);return r?JSON.parse(r):null}catch(e){return null}}
+function load(){
+  try{
+    var r=localStorage.getItem(KEY);
+    if(r) return JSON.parse(r);
+    /* миграция: состояние из прошлой сессии (v1) */
+    var old=localStorage.getItem(KEY_V1);
+    if(old){
+      var s=JSON.parse(old);
+      delete s.red;           /* флаг красного экрана не переносим */
+      if(s.step==='red'||s.red_screen) s.step='intro';
+      localStorage.setItem(KEY,JSON.stringify(s));
+      return s;
+    }
+  }catch(e){}
+  return null;
+}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1)),t=a[i];a[i]=a[j];a[j]=t}return a}
 
-var S=load()||{step:'intro',ai:0,bi:0,ci:0,a:{},b:{},c:{},cRaw:{},cPool:null,red:false};
+var S=load()||{step:'intro',ai:0,bi:0,ci:0,a:{},b:{},c:{},cRaw:{},cPool:null};
 
 function progress(){
   var done=Object.keys(S.a).length+Object.keys(S.b).length+Object.keys(S.c).length;
@@ -250,15 +262,6 @@ function progress(){
 function bar(){
   var p=progress();
   return '<div class="bar"><i style="width:'+p+'%"></i></div><div class="meta">Прогресс: '+p+'%</div>';
-}
-
-function redScreen(){
-  app.innerHTML='<div class="card redscreen">'+
-    '<h1>Здесь важно остановиться</h1>'+
-    '<p>Похоже, вам сейчас по-настоящему тяжело. Этот тест — не место, где это нужно тащить в одиночку.</p>'+
-    '<p style="margin-top:12px">Поговорите со специалистом. А если нужен живой голос прямо сейчас — '+
-    '<b>'+HOTLINE+'</b> — бесплатная круглосуточная линия.</p>'+
-    '<p class="note">Тест останавливается. Это не провал и не ошибка.</p></div>';
 }
 
 function intro(){
@@ -270,7 +273,7 @@ function intro(){
     '<button class="btn" id="go">Начать</button>'+
     (progress()>0?'<button class="btn sec" id="cont">Продолжить</button>':'')+
     '<p class="note">Данные хранятся только на вашем устройстве.</p></div>';
-  document.getElementById('go').onclick=function(){S.step='a';save();render()};
+  document.getElementById('go').onclick=function(){S.step='a';S.ai=0;save();render()};
   var c=document.getElementById('cont');if(c)c.onclick=function(){render()};
 }
 
@@ -308,7 +311,6 @@ function screenB(){
   document.getElementById('next').onclick=function(){
     var t=ta.value.trim();
     if(t.length<30){err.style.display='';return}
-    if(RED.test(t)){S.red=true;save();render();return}
     S.b[q.id]=t;S.bi++;save();
     if(S.bi>=6){S.step='c'}render();
   };
@@ -423,7 +425,6 @@ function result(){
 }
 
 function render(){
-  if(S.red)return redScreen();
   switch(S.step){
     case 'intro':return intro();
     case 'a':return S.ai<24?screenA():intro();
